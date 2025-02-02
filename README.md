@@ -11,7 +11,7 @@ They are not polished and are not meant to be "final products." I doubt they'll 
 
 ### Snake
 A traditional Snake game with an interface made using GTK (reusing the library from paint.c). The twist is that if you hold the "i" key, the game will "solve" itself using BFS. This isn't optimal, and sometimes it causes the snake to lose in some silly ways, but I used this to practice data structures.
-also i will add snakev2 with an optimal way to solve the game.
+
 
 ### Pong
 A Pong game made without graphic libraries, using only ASCII characters.
