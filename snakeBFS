@@ -1,0 +1,290 @@
+#include <gtk/gtk.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <time.h>
+#include <queue>
+#include <cmath>
+
+#define TAM_CELDA 20
+#define ANCHO 30
+#define ALTO 30
+
+using namespace std;
+
+typedef struct {
+    int x;
+    int y;
+} Point;
+
+typedef struct {
+    GtkWidget *drawing_area;
+    GtkWidget *score_label;
+    vector<Point> snake;
+    Point comida;
+    GdkRGBA color_snake;
+    GdkRGBA color_comida;
+    GdkRGBA color_fondo;
+    int dx;
+    int dy;
+    int score;
+    bool game_over;
+    bool auto_play;
+    queue<char> movimientos;
+} DatosJuego;
+
+void generar_comida(DatosJuego *datos) {
+    while (true) {
+        datos->comida.x = rand() % ANCHO;
+        datos->comida.y = rand() % ALTO;
+        
+        bool en_snake = false;
+        for (auto& segmento : datos->snake) {
+            if (segmento.x == datos->comida.x && segmento.y == datos->comida.y) {
+                en_snake = true;
+                break;
+            }
+        }
+        
+        if (!en_snake) break;
+    }
+}
+
+bool bfs(DatosJuego *datos) {
+    bool visitado[ANCHO][ALTO] = {false};
+    Point padre[ANCHO][ALTO];
+    queue<Point> q;
+    
+    Point inicio = {datos->snake.front().x, datos->snake.front().y};
+    q.push(inicio);
+    visitado[inicio.x][inicio.y] = true;
+    
+    int dx[] = {-1, 1, 0, 0};
+    int dy[] = {0, 0, -1, 1};
+    
+    while (!q.empty()) {
+        Point actual = q.front();
+        q.pop();
+        
+        if (actual.x == datos->comida.x && actual.y == datos->comida.y) {
+            vector<Point> camino;
+            while (actual.x != inicio.x || actual.y != inicio.y) {
+                camino.push_back(actual);
+                actual = padre[actual.x][actual.y];
+            }
+            
+            datos->movimientos = queue<char>();
+            for (int i = camino.size() - 1; i >= 0; i--) {
+                if (camino[i].x > datos->snake.front().x) datos->movimientos.push('d');
+                else if (camino[i].x < datos->snake.front().x) datos->movimientos.push('a');
+                else if (camino[i].y > datos->snake.front().y) datos->movimientos.push('s');
+                else if (camino[i].y < datos->snake.front().y) datos->movimientos.push('w');
+            }
+            return true;
+        }
+        
+        for (int i = 0; i < 4; i++) {
+            int nx = actual.x + dx[i];
+            int ny = actual.y + dy[i];
+            
+            if (nx >= 0 && nx < ANCHO && ny >= 0 && ny < ALTO && !visitado[nx][ny]) {
+                bool en_snake = false;
+                for (auto& segmento : datos->snake) {
+                    if (segmento.x == nx && segmento.y == ny) {
+                        en_snake = true;
+                        break;
+                    }
+                }
+                
+                if (!en_snake) {
+                    visitado[nx][ny] = true;
+                    padre[nx][ny] = actual;
+                    q.push({nx, ny});
+                }
+            }
+        }
+    }
+    return false;
+}
+
+gboolean actualizar_juego(gpointer user_data) {
+    DatosJuego *datos = (DatosJuego *)user_data;
+
+    if (datos->game_over) return G_SOURCE_CONTINUE;
+
+    if (datos->auto_play) {
+        if (datos->movimientos.empty()) {
+            if (!bfs(datos)) {
+                datos->auto_play = false;
+                return G_SOURCE_CONTINUE;
+            }
+        }
+        
+        char movimiento = datos->movimientos.front();
+        datos->movimientos.pop();
+        
+        switch (movimiento) {
+            case 'w': datos->dx = 0; datos->dy = -1; break;
+            case 's': datos->dx = 0; datos->dy = 1; break;
+            case 'a': datos->dx = -1; datos->dy = 0; break;
+            case 'd': datos->dx = 1; datos->dy = 0; break;
+        }
+    }
+
+    Point nueva_cabeza = {
+        datos->snake.front().x + datos->dx,
+        datos->snake.front().y + datos->dy
+    };
+
+    if (nueva_cabeza.x < 0 || nueva_cabeza.x >= ANCHO ||
+        nueva_cabeza.y < 0 || nueva_cabeza.y >= ALTO) {
+        datos->game_over = true;
+        return G_SOURCE_CONTINUE;
+    }
+
+    for (auto& segmento : datos->snake) {
+        if (nueva_cabeza.x == segmento.x && nueva_cabeza.y == segmento.y) {
+            datos->game_over = true;
+            return G_SOURCE_CONTINUE;
+        }
+    }
+
+    datos->snake.insert(datos->snake.begin(), nueva_cabeza);
+
+    if (nueva_cabeza.x == datos->comida.x && nueva_cabeza.y == datos->comida.y) {
+        datos->score += 10;
+        char score_str[20];
+        sprintf(score_str, "Score: %d", datos->score);
+        gtk_label_set_text(GTK_LABEL(datos->score_label), score_str);
+        generar_comida(datos);
+    } else {
+        datos->snake.pop_back();
+    }
+
+    gtk_widget_queue_draw(datos->drawing_area);
+    return G_SOURCE_CONTINUE;
+}
+
+gboolean dibujar(GtkWidget *widget, cairo_t *cr, gpointer user_data) {
+    DatosJuego *datos = (DatosJuego *)user_data;
+    GtkAllocation allocation;
+    gtk_widget_get_allocation(widget, &allocation);
+    int width = allocation.width;
+    int height = allocation.height;
+
+    cairo_set_source_rgba(cr, datos->color_fondo.red, datos->color_fondo.green,
+                         datos->color_fondo.blue, datos->color_fondo.alpha);
+    cairo_rectangle(cr, 0, 0, width, height);
+    cairo_fill(cr);
+
+ 
+    cairo_set_source_rgba(cr, datos->color_comida.red, datos->color_comida.green,
+                         datos->color_comida.blue, datos->color_comida.alpha);
+    cairo_arc(cr, datos->comida.x * TAM_CELDA + TAM_CELDA/2,
+              datos->comida.y * TAM_CELDA + TAM_CELDA/2, TAM_CELDA/2 - 2, 0, 2 * G_PI);
+    cairo_fill(cr);
+
+
+    cairo_set_source_rgba(cr, datos->color_snake.red, datos->color_snake.green,
+                         datos->color_snake.blue, datos->color_snake.alpha);
+    for (auto& segmento : datos->snake) {
+        cairo_rectangle(cr, segmento.x * TAM_CELDA + 1, segmento.y * TAM_CELDA + 1,
+                       TAM_CELDA - 2, TAM_CELDA - 2);
+        cairo_fill(cr);
+    }
+
+    if (datos->game_over) {
+        cairo_set_source_rgb(cr, 1, 0, 0);
+        cairo_select_font_face(cr, "Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+        cairo_set_font_size(cr, 24);
+        cairo_move_to(cr, width/2 - 50, height/2);
+        cairo_show_text(cr, "Game Over!");
+    }
+
+    return FALSE;
+}
+
+gboolean tecla_presionada(GtkWidget *widget, GdkEventKey *event, gpointer user_data) {
+    DatosJuego *datos = (DatosJuego *)user_data;
+
+    switch (event->keyval) {
+        case GDK_KEY_Up:
+            if (datos->dy == 0 && !datos->auto_play) {
+                datos->dx = 0;
+                datos->dy = -1;
+            }
+            break;
+        case GDK_KEY_Down:
+            if (datos->dy == 0 && !datos->auto_play) {
+                datos->dx = 0;
+                datos->dy = 1;
+            }
+            break;
+        case GDK_KEY_Left:
+            if (datos->dx == 0 && !datos->auto_play) {
+                datos->dx = -1;
+                datos->dy = 0;
+            }
+            break;
+        case GDK_KEY_Right:
+            if (datos->dx == 0 && !datos->auto_play) {
+                datos->dx = 1;
+                datos->dy = 0;
+            }
+            break;
+        case GDK_KEY_i:
+            datos->auto_play = !datos->auto_play;
+            if (datos->auto_play) bfs(datos);
+            break;
+    }
+
+    return TRUE;
+}
+
+int main(int argc, char *argv[]) {
+    gtk_init(&argc, &argv);
+    srand(time(NULL));
+
+    GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    GtkWidget *drawing_area = gtk_drawing_area_new();
+    GtkWidget *score_label = gtk_label_new("Score: 0");
+
+    DatosJuego datos = {
+        .drawing_area = drawing_area,
+        .score_label = score_label,
+        .snake = {{15, 15}, {14, 15}, {13, 15}},
+        .color_snake = {0.2, 0.8, 0.2, 1.0},
+        .color_comida = {0.8, 0.2, 0.2, 1.0},
+        .color_fondo = {0.1, 0.1, 0.1, 1.0},
+        .dx = 1,
+        .dy = 0,
+        .score = 0,
+        .game_over = false,
+        .auto_play = false
+    };
+
+    generar_comida(&datos);
+
+    gtk_window_set_title(GTK_WINDOW(window), "Snake GTK");
+    gtk_window_set_default_size(GTK_WINDOW(window), ANCHO * TAM_CELDA, ALTO * TAM_CELDA + 40);
+    gtk_container_set_border_width(GTK_CONTAINER(window), 10);
+
+    gtk_box_pack_start(GTK_BOX(vbox), score_label, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(vbox), drawing_area, TRUE, TRUE, 0);
+    gtk_container_add(GTK_CONTAINER(window), vbox);
+
+    gtk_widget_set_can_focus(drawing_area, TRUE);
+    gtk_widget_grab_focus(drawing_area);
+
+    g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    g_signal_connect(drawing_area, "draw", G_CALLBACK(dibujar), &datos);
+    g_signal_connect(drawing_area, "key-press-event", G_CALLBACK(tecla_presionada), &datos);
+
+    // Configura el temporizador para llamar a actualizar_juego cada 150 ms
+    g_timeout_add(150, (GSourceFunc)actualizar_juego, &datos);
+
+    gtk_widget_show_all(window);
+    gtk_main();
+
+    return 0;
+}
