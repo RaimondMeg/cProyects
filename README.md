@@ -3,7 +3,7 @@
 This repository contains various C code projects that I've created for fun and practice.
 
 
- This repository is not intended to be a professional repository. These are codes I've created in my free time to learn a thing or two and for fun. 
+This is not intended to be a professional repository. These are codes I've created in my free time to learn a thing or two and for fun. 
 They are not polished and are not meant to be "final products." I doubt they'll be updated once they "work," but I'll keep them in my repositories to see the evolution of my work.
 
 
